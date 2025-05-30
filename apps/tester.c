@@ -8,25 +8,47 @@
 
 void do_sequential_writes();
 void do_long_write();
+void usage();
 
 /*
- * arg0: program
- * arg1: command
- * arg2: diskname
+ * usage:
+ *
+ * example1: ./exec/tester.x <command> <diskname>
+ * 
+ * example2: make test args="<command> <diskname>"
+ *
+ * commands: long_write 
+ *           sequential_writes
+ *
+ *
+ *	long write: performs a long write on disk
+ *
+ *	sequential write: performs many writes in sequence
  */
 int main(int argc, char** argv){
+
+    if(argc != 3){
+	usage();
+	exit(0);
+    }
 
     char* command = argv[1];
     char* diskname= argv[2];
 
-    fs_mount(diskname);
+    int ret=fs_mount(diskname);
+
+    if(ret==-1){
+	usage();
+	exit(0);
+    }
 
     if(strcmp(command,"long_write")==0){
         do_long_write();
-    }
 
-    if(strcmp(command,"sequential_writes")==0){
+    } else if(strcmp(command,"sequential_writes")==0){
         do_sequential_writes();
+    } else {
+    	usage();
     }
 
     fs_umount();
@@ -38,7 +60,6 @@ int main(int argc, char** argv){
  *
  * pass: numbers are printed in ascending order
  */
-
 void do_sequential_writes(){
 
     fs_create("1_to_9999");
@@ -117,4 +138,19 @@ void do_long_write(){
       fs_close(fd);
 
       fs_delete("long_write");
+}
+
+void usage(){
+    	printf("\n\n------usage: tester.x"
+        
+                        "\n\n\t./exec/tester.x <command> <diskname>"
+
+                        "\n\n--or--"
+
+                        "\n\n\tmake test args=\"<command> <diskname>\""
+
+                        "\n\n------commands:"
+ 
+                        "\n\n\tlong_write\n\tsequential_writes\n\n\n");
+
 }

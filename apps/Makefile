@@ -83,6 +83,7 @@ clean: FORCE
 .PHONY: FORCE
 FORCE:
 
+#usage: make test args="<command> <diskname>"
 test:
-	./$(EXEC_DIR)/tester.x
+	./$(EXEC_DIR)/tester.x $(args)
 	
