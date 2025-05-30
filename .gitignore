@@ -1,0 +1,11 @@
+# Files
+.DS_Store
+.project
+*.txt
+libfs/libfs.a
+*.fs
+
+# Folders
+apps/obj/
+apps/exec/
+libfs/obj/
