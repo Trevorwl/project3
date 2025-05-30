@@ -8,21 +8,20 @@
 #include "fs.h"
 #include "disk.h"
 
-/** Maximum filename length (including the NULL character) */
 #ifndef FS_FILENAME_LEN
 #define FS_FILENAME_LEN 16
 #endif
 
-/** Maximum number of files in the root directory */
+
 #ifndef FS_FILE_MAX_COUNT
 #define FS_FILE_MAX_COUNT 128
 #endif
 
 
-/** Maximum number of open files */
 #ifndef FS_OPEN_MAX_COUNT
 #define FS_OPEN_MAX_COUNT 32
 #endif
+
 
 /*
  * fdNode is a data structure that represents a fd entry.
@@ -43,7 +42,8 @@ struct fdNode{
     size_t offset;
 
     /*
-     * The first data block index for the file corresponding to this fd
+     * The first data block index for the file corresponding to this fd.
+     * Is FAT_EOC if file has no data blocks.
      */
     size_t first_data_block;
 };

@@ -13,16 +13,14 @@
 #ifndef FS_OPEN_MAX_COUNT
 #define FS_OPEN_MAX_COUNT 32
 #endif
+
 /*
- * variables needed for part 4
+ * These 3 variables can be assigned in fs_mount
  */
 bool disk_mounted = false;
 
 struct fdTable* fd_table = NULL;
 
-/*
- * is assigned when disk metadata is read
- */
 size_t root_directory_index = 0;
 
 
