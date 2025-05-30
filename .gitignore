@@ -4,6 +4,9 @@
 *.txt
 libfs/libfs.a
 *.fs
+*.x
+!fs_make.x
+!fs_ref.x
 
 # Folders
 apps/obj/

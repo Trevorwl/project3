@@ -6,15 +6,8 @@ FSLIB := libfs
 FSPATH := ../$(FSLIB)
 libfs := $(FSPATH)/$(FSLIB).a
 
-# Directories
-EXEC_DIR := exec
-OBJ_DIR := obj
-
-# Create directories if they don't exist
-$(shell mkdir -p $(EXEC_DIR) $(OBJ_DIR))
-
 # Default rule
-all: $(addprefix $(EXEC_DIR)/,$(programs))
+all: $(programs)
 
 # Avoid builtin rules and variables
 MAKEFLAGS += -rR
@@ -29,33 +22,35 @@ endif
 CUR_PWD := $(shell pwd)
 
 # Define compilation toolchain
-CC = gcc
+CC	= gcc
 
 # General gcc options
-CFLAGS := -Wall -Werror -pipe
-
+CFLAGS	:= -Wall -Werror
+CFLAGS	+= -pipe
 ## Debug flag
 ifneq ($(D),1)
-CFLAGS += -O2
+CFLAGS	+= -O2
 else
-CFLAGS += -g
+CFLAGS	+= -g
 endif
-
 ## Include path
-CFLAGS += -I$(FSPATH)
-
+CFLAGS 	+= -I$(FSPATH)
 ## Dependency generation
-CFLAGS += -MMD
+CFLAGS	+= -MMD -MP
 
 # Linker options
 LDFLAGS := -L$(FSPATH) -lfs
 
 # Application objects to compile
-objs := $(addprefix $(OBJ_DIR)/,$(patsubst %.x,%.o,$(programs)))
+objs := $(addprefix obj/, $(patsubst %.x,%.o,$(programs)))
 
 # Include dependencies
 deps := $(objs:.o=.d)
 -include $(deps)
+
+# Ensure obj directory exists
+obj:
+	mkdir -p obj
 
 # Rule for libfs.a
 $(libfs): FORCE
@@ -63,12 +58,12 @@ $(libfs): FORCE
 	$(Q)$(MAKE) V=$(V) D=$(D) -C $(FSPATH)
 
 # Generic rule for linking final applications
-$(EXEC_DIR)/%.x: $(OBJ_DIR)/%.o $(libfs)
+%.x: obj/%.o $(libfs)
 	@echo "LD	$@"
 	$(Q)$(CC) -o $@ $< $(LDFLAGS)
 
 # Generic rule for compiling objects
-$(OBJ_DIR)/%.o: %.c
+obj/%.o: %.c | obj
 	@echo "CC	$@"
 	$(Q)$(CC) $(CFLAGS) -c -o $@ $<
 
@@ -76,14 +71,14 @@ $(OBJ_DIR)/%.o: %.c
 clean: FORCE
 	@echo "CLEAN	$(CUR_PWD)"
 	$(Q)$(MAKE) V=$(V) D=$(D) -C $(FSPATH) clean
-	$(Q)rm -rf $(OBJ_DIR) $(EXEC_DIR)
+	$(Q)rm -rf obj $(programs)
 
 # Keep object files around
-.PRECIOUS: $(OBJ_DIR)/%.o
+.PRECIOUS: obj/%.o
 .PHONY: FORCE
 FORCE:
 
 #usage: make test args="<command> <diskname>"
 test:
-	./$(EXEC_DIR)/tester.x $(args)
+	./tester.x $(args)
 	

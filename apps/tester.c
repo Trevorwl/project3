@@ -13,7 +13,7 @@ void usage();
 /*
  * usage:
  *
- * example1: ./exec/tester.x <command> <diskname>
+ * example1: ./tester.x <command> <diskname>
  * 
  * example2: make test args="<command> <diskname>"
  *
