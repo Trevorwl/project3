@@ -271,11 +271,15 @@ bool first_block_available(size_t* block_index_holder){
         uint16_t* fat_entry=(uint16_t*)disk_buffer;
 
         for(int entry = 0; entry < FAT_ENTRIES; entry++){
+            size_t data_block_index = (fat_block_index - (size_t)FAT_BLOCK_START_INDEX)
+                                    * (size_t)FAT_ENTRIES + (size_t)entry;
+
+            if(data_block_index == data_blocks){
+                return false;
+            }
+
 
             if(*fat_entry==0){
-
-                size_t data_block_index = (fat_block_index - (size_t)FAT_BLOCK_START_INDEX)
-                        * (size_t)FAT_ENTRIES + (size_t)entry;
 
                 *block_index_holder  = data_block_index;
 

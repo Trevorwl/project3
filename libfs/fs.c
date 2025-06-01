@@ -15,13 +15,15 @@
 #endif
 
 /*
- * These 3 variables can be assigned in fs_mount
+ * These 4 variables can be assigned in fs_mount
  */
 bool disk_mounted = false;
 
 struct fdTable* fd_table = NULL;
 
 size_t root_directory_index = 0;
+
+size_t data_blocks=0;
 
 
 int fs_mount(const char *diskname)

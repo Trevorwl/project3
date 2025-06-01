@@ -23,9 +23,8 @@
 #endif
 
 /*
- * variables needed for part 4
+ * These 4 variables can be assigned in fs_mount
  */
-
 extern bool disk_mounted;
 
 /*
@@ -37,6 +36,11 @@ extern size_t root_directory_index;
  * The table of file descriptors
  */
 extern struct fdTable* fd_table;
+
+/*
+ * total data blocks
+ */
+extern size_t data_blocks;
 
 /**
  * fs_mount - Mount a file system
