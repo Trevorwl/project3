@@ -1,4 +1,3 @@
-
 #ifndef FDTABLE_H_
 #define FDTABLE_H_
 
@@ -23,41 +22,24 @@
 #endif
 
 
-/*
- * fdNode is a data structure that represents a fd entry.
- */
+// fdNode is a data structure that represents a fd entry.
 struct fdNode{
-    /*
-     * Whether the fdNode is in use
-     */
-    bool in_use;
+    bool in_use; //Whether the fdNode is in use
     char* filename;
-
-    /*
-     * The entry index of the file in the directory
-     */
-    size_t dir_entry_index;
-
-    size_t size;
+    uint16_t dir_entry_index; //The entry index of the file in the directory
+    uint32_t size;
     size_t offset;
-
-    /*
-     * The first data block of the file. Is FAT_EOC if file has no data blocks.
-     */
-    size_t first_data_block;
+    uint16_t first_data_block; //The first data block of the file. Is FAT_EOC if file has no data blocks.
 };
 
 struct fdTable{
     struct fdNode* fdTable[FS_OPEN_MAX_COUNT];
-
-    /*
-     * Number of slots in fdTable occupied
-     */
-    size_t fdsOccupied;
+    size_t fdsOccupied; //Number of slots in fdTable occupied
 };
-
 
 struct fdNode* getFdEntry(struct fdTable*,int fd);
 bool isOpenByFd(struct fdTable*,int fd);
+bool isOpenByName(struct fdTable *table, const char *filename);
+struct fdTable* init_fd_table();
 
 #endif
