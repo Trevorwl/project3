@@ -23,8 +23,9 @@
 #endif
 
 /*
- * These 4 variables can be assigned in fs_mount
+ * variables needed for part 4
  */
+
 extern bool disk_mounted;
 
 /*
