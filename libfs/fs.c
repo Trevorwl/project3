@@ -15,76 +15,469 @@
 #endif
 
 /*
- * These 4 variables can be assigned in fs_mount
+ * These 3 variables can be assigned in fs_mount
  */
+
 bool disk_mounted = false;
-
-struct fdTable* fd_table = NULL;
-
 size_t root_directory_index = 0;
-
+struct fdTable* fd_table = NULL;
 size_t data_blocks=0;
 
+/*    SUPERBLOCK    */
+#define fs_signature "ECS150FS"
+#define fs_signature_length 8
 
+// superblock metadata
+struct __attribute__((packed)) superblock {
+	char signature[fs_signature_length];// "ECS150FS", 8 bytes
+	uint16_t total_blocks;				// Total amount of blocks of virtual disk, 2 bytes
+	uint16_t root_directory_index;		// Root directory block index, 2 bytes
+	uint16_t data_start_index; 			// Data block start index, 2 bytes
+	uint16_t data_block_amount;			// Amount of data blocks, 2 bytes
+	uint8_t fat_block_count;			// Number of blocks for FAT, 1 byte
+	uint8_t unused[BLOCK_SIZE - 17]; 	// Unused/Padding = 4096-(8+2+2+2+2+1) 
+};
+
+// static int fs_mounted = 0; 		//0 unmounted, 1 mounted
+static struct superblock sb;	
+static uint16_t *fat = NULL;	//pointer to FAT 
+
+
+/*    ROOT DIRECTORY    */
+#define fs_file_name_length 16
+#define fs_file_max_count 128
+
+// directory entry 
+struct __attribute__((packed)) fs_directory_entry {
+	char file_name[fs_file_name_length];// name of file, 16 bytes (including null terminator)
+	uint32_t file_size;					// file size, 4 bytes
+	uint16_t data_index;				// index, 2 bytes
+	uint8_t unused[10];					// padding to make total size 32 bytes
+};
+
+static struct fs_directory_entry root_directory[fs_file_max_count];
+
+// opens virtual disk, reads superblock, verifies 
 int fs_mount(const char *diskname)
 {
-    (void)diskname;
+	//check file descriptor was stored successfully
+	if(block_disk_open(diskname) < 0) { 
+		// fprintf(stderr, "Failed to open disk\n"); //for testing. remove later
+		return -1; 
+	}
 
-    return -1;
+	uint8_t block[BLOCK_SIZE]; // buffer to hold superblock content
+
+	// verify block reads 4096 bytes 
+	if (block_read(0, block) < 0) {
+		// fprintf(stderr, "Failed to read superblock\n"); //for debugging
+		block_disk_close();
+		return -1;
+	}
+
+	// create actual superblock using block[] info
+	struct superblock *supBlock = (struct superblock *) block;
+
+	// check supBlock signature matches "ECS150FS"
+	if (strncmp(supBlock->signature, fs_signature, fs_signature_length) != 0) {
+		//use strncmp since signature has no null terminator
+		
+		// fprintf(stderr, "Invalid file system signature\n");
+		block_disk_close();
+		return -1;
+	}
+
+
+	int disk_blocks = block_disk_count();
+
+	/*  Validate superblock data:
+		Fat_block_count is nonzero, 
+		Root directory block immediately follows the FAT, 
+		Data blocks follow the root, 
+		All regions fit within the actual disk size.
+	*/ 
+	if (supBlock->fat_block_count == 0 ||
+	    supBlock->root_directory_index != 1 + supBlock->fat_block_count ||
+	    supBlock->data_start_index != supBlock->root_directory_index + 1 ||
+	    supBlock->data_start_index + supBlock->data_block_amount > disk_blocks) {
+	    
+	    block_disk_close();
+	    return -1;
+	}
+
+	// save copy of supBlock's metadata content 
+	memcpy(&sb, supBlock, sizeof(struct superblock));
+
+	disk_mounted = true; //supBlock fs was successfully mounted on disk
+	// printf("FS mounted: %d blocks, FAT = %d blocks\n", sb.total_blocks, sb.fat_block_count);
+
+    fd_table = init_fd_table();  // Make sure this is defined in fdTable.c
+        if (fd_table == NULL) {
+            block_disk_close();
+            return -1;
+        }
+
+	//load the file allocation table from disk
+	fat = malloc(sb.fat_block_count * BLOCK_SIZE);
+
+	//verify mem allocation succeeded
+	if (!fat) {
+		// fprintf(stderr, "Failed to Allocated FAT\n");
+		block_disk_close();
+		return -1;
+	}
+
+	// copy each FAT block into fat pointer
+	for (uint8_t i = 0; i < sb.fat_block_count; i++) {
+		
+		// verify read succeeded
+		if (block_read(i + 1, block) < 0) {
+			// fprintf(stderr, "Failed to read FAT block %d\n", i);
+			free(fat);
+			block_disk_close();
+			return -1;
+		}
+		// if so, copy block (4096 bytes) amount of data into each fat[i]
+		memcpy((uint8_t *)fat + (i * BLOCK_SIZE), block, BLOCK_SIZE);
+	}
+
+	// read root directory into memory
+	if (block_read(sb.root_directory_index, block) < 0) {
+		// fprintf(stderr, "Failed to Read root directory block\n");
+		free(fat);
+		block_disk_close();
+		return -1;
+	}
+
+	// copy full block data into root directory 
+	memcpy(root_directory, block, BLOCK_SIZE);
+
+	return 0;
 }
 
+// unmount current mounted fs and close virtual disk
 int fs_umount(void)
 {
-    return -1;
+	// check if there's any mounted fs
+	if (!disk_mounted) {
+		return -1;
+	}
+
+	// free FAT's memory & pointer
+	free(fat); 
+	fat = NULL;
+
+	// close disk file
+	if (block_disk_close() < 0) {
+		return -1;
+	}
+
+	disk_mounted = false; // reset mount flag 
+
+	return 0;
 }
 
+//displays info about current mounted fs
 int fs_info(void)
 {
+	// check if there's any mounted fs
+	if (!disk_mounted) {
+		return -1;
+	}
+	/* Print format based on provided fs_ref.x ref program */
+	printf("FS Info:\n");
+	printf("total_blk_count=%d\n", sb.total_blocks);
+	printf("fat_blk_count=%d\n", sb.fat_block_count);
+	printf("rdir_blk=%d\n", sb.root_directory_index);
+	printf("data_blk=%d\n", sb.data_start_index);
+	printf("data_blk_count=%d\n", sb.data_block_amount);
+	
+	// count free entries in FAT (value == 0)
+	int free_fat = 0;
+	for (int i = 0; i < sb.data_block_amount; i++) {
+		if (fat[i] == 0) //if entry is empty
+			free_fat++;
+	}
+	printf("fat_free_ratio=%d/%d\n", free_fat, sb.data_block_amount);
 
-    return -1;
+	// count free entries in root directory
+	int free_root_dir = 0;
+	for (int i = 0; i < fs_file_max_count; i++) {
+		if (root_directory[i].file_name[0] == '\0') // if entry is being unused
+			free_root_dir++;
+	}
+	printf("rdir_free_ratio=%d/%d\n", free_root_dir, fs_file_max_count);
+
+	return 0;
 }
+
 
 int fs_create(const char *filename)
 {
-    (void)filename;
-	return -1;
+    // validate mounted and filename
+    // if(!disk_mounted || filename == NULL || strlen(filename) == 0 || strlen(filename) >= FS_FILENAME_LEN){
+    //     return -1;
+    // }
+
+    if (!disk_mounted) {
+        printf("[DEBUG] fs_create: no disk mounted\n");
+        return -1;
+    }
+    if (!filename || strlen(filename) == 0 || strlen(filename) >= FS_FILENAME_LEN) {
+        printf("[DEBUG] fs_create: invalid filename = '%s'\n", filename ? filename : "NULL");
+        return -1;
+    }
+
+    // Check if filename already exists
+    for (int i = 0; i < fs_file_max_count; i++) {
+        if (strncmp(root_directory[i].file_name, filename, FS_FILENAME_LEN) == 0)
+            return -1;  // File already exists
+    }
+
+    // find free entry in root dir
+    int free_index = -1; 
+    for(int i = 0; i < fs_file_max_count; i++){
+        if(root_directory[i].file_name[0] == '\0'){
+            free_index = i;
+            break;
+        }
+    }
+    
+    if (free_index == -1){
+        return -1;  //no space in root dir
+    }
+
+    // init new file entry
+    memset(&root_directory[free_index], 0, sizeof(struct fs_directory_entry));
+    strncpy(root_directory[free_index].file_name, filename, FS_FILENAME_LEN-1);
+    root_directory[free_index].file_name[FS_FILENAME_LEN - 1] = '\0'; 
+    root_directory[free_index].file_size = 0;
+    root_directory[free_index].data_index = FAT_EOC;
+
+    // write the updated root dir to disk
+    if (block_write(sb.root_directory_index, root_directory) < 0){
+        return -1;
+    }
+
+	return 0;
 }
 
 int fs_delete(const char *filename)
 {
-    (void)filename;
-    return -1;
+    // validate mounted and filename
+    if(!disk_mounted || filename == NULL || strlen(filename) == 0 || strlen(filename) >= FS_FILENAME_LEN){
+        return -1;
+    }
+
+    int file_index = -1;
+    // find file in root dir
+    for(int i = 0; i < fs_file_max_count; i++){
+        if (strncmp(root_directory[i].file_name, filename, FS_FILENAME_LEN) == 0) {
+            file_index = i;
+            break;
+        }
+    }
+
+    if (file_index == -1){
+        return -1;  // file not found
+    }
+
+    // check if file is open
+    if (isOpenByName(fd_table, filename)){
+        return -1;
+    }
+    
+    // free all FAT blocks linked to file
+    uint16_t current = root_directory[file_index].data_index;
+    while(current != FAT_EOC){
+        uint16_t next = fat[current];
+        fat[current] = 0;
+        current = next;
+    }
+
+    // clear root dir entry
+    memset(&root_directory[file_index], 0, sizeof(struct fs_directory_entry));
+
+    // write root dir back to disk
+    if (block_write(sb.root_directory_index, root_directory) < 0){
+        return -1;
+    }
+
+    return 0;
 }
 
 int fs_ls(void)
 {
 
-    return -1;
+    // validate filesystem is mounted
+    if (!disk_mounted) {
+        return -1;
+    }
+
+    // go through all root dir entries
+    for (int i = 0; i < fs_file_max_count; i++) {
+        if (root_directory[i].file_name[0] != '\0') {
+            printf("file: %s, size: %d, data_blk: %d\n",
+                   root_directory[i].file_name,
+                   root_directory[i].file_size,
+                   root_directory[i].data_index);
+        }
+    }
+
+    return 0;
 }
 
 int fs_open(const char *filename)
 {
-    (void)filename;
-    return -1;
+    // validate mounted and filename
+    if (!disk_mounted || 
+        filename == NULL || 
+        strlen(filename) == 0 || 
+        strlen(filename) >= FS_FILENAME_LEN) {
+        return -1;
+    }
+
+    int dir_index = -1;
+
+    // find file in root dir
+    for (int i = 0; i < fs_file_max_count; i++) {
+        if (strncmp(root_directory[i].file_name, filename, FS_FILENAME_LEN) == 0) {
+            dir_index = i;
+            break;
+        }
+    }
+
+    if (dir_index == -1) {
+        return -1;  // file not found
+    }
+
+    // find unused fd slot
+    int fd = -1;
+    for (int i = 0; i < FS_OPEN_MAX_COUNT; i++) {
+        if (fd_table->fdTable[i] == NULL) {
+            fd = i;
+            break;
+        }
+    }
+
+    if (fd == -1) {
+        return -1; // no available fd slot
+    }
+
+    // allocate and fill fdNodes
+    struct fdNode *new_fd = malloc(sizeof(struct fdNode));
+    if (!new_fd) {
+        return -1;
+    }
+
+    new_fd->filename = strdup(filename);
+    if (!new_fd->filename) {
+        free(new_fd);
+        return -1;
+    }
+
+    new_fd->in_use = true;
+    new_fd->dir_entry_index = dir_index;
+    new_fd->offset = 0;
+    new_fd->size = root_directory[dir_index].file_size;
+    new_fd->first_data_block = root_directory[dir_index].data_index;
+
+    // save in fdTable
+    fd_table->fdTable[fd] = new_fd;
+    fd_table->fdsOccupied++;
+
+    return fd;
 }
 
 int fs_close(int fd)
 {
-    (void)fd;
-    return -1;
+
+    // validate mount & fd valid
+    if (!disk_mounted || 
+        !fd_table || 
+        fd < 0 || 
+        fd >= FS_OPEN_MAX_COUNT || 
+        !fd_table->fdTable[fd] || 
+        !fd_table->fdTable[fd]->in_use) {
+
+        printf("[DEBUG] Invalid fd or fd table\n");
+        return -1;
+    }
+
+    struct fdNode *node = fd_table->fdTable[fd];
+
+    // check if fd is actually open
+    if (node == NULL || node->in_use == false) {
+        return -1;
+    }
+
+    // free resources
+    free(node->filename);
+    free(node);
+
+    // mark slot unused
+    fd_table->fdTable[fd] = NULL;
+    fd_table->fdsOccupied--;
+
+    return 0;
 }
 
 int fs_stat(int fd)
 {
-   (void)fd;
-   return -1;
+    // validate mount & fd valid
+    if (!disk_mounted || 
+        !fd_table || 
+        fd < 0 || 
+        fd >= FS_OPEN_MAX_COUNT || 
+        !fd_table->fdTable[fd] || 
+        !fd_table->fdTable[fd]->in_use) {
+
+        printf("[DEBUG] Invalid fd or fd table\n");
+        return -1;
+    }
+
+    // check if fd is open
+    struct fdNode *node = fd_table->fdTable[fd];
+    if (node == NULL || !node->in_use) {
+        return -1;
+    }
+
+    // return the current file size
+    return (int) node->size;
 }
 
 int fs_lseek(int fd, size_t offset)
 {
-    (void)fd;
-    (void)offset;
-     return 0;
+
+    // validate mount & fd valid
+    if (!disk_mounted || 
+        !fd_table || 
+        fd < 0 || 
+        fd >= FS_OPEN_MAX_COUNT || 
+        !fd_table->fdTable[fd] || 
+        !fd_table->fdTable[fd]->in_use) {
+
+        printf("[DEBUG] Invalid fd or fd table\n");
+        return -1;
+    }
+
+    // get fd entry
+    struct fdNode *node = fd_table->fdTable[fd];
+    if (node == NULL || !node->in_use) {
+        printf("[DEBUG] FD %d is not in use\n", fd);
+        return -1;
+    }
+
+    // check offset is within file size
+    if (offset > node->size) {
+        printf("[DEBUG] Offset %zu is beyond file size %zu\n", offset, (size_t)node->size);
+        return -1;
+    }
+
+    // set new offset
+    node->offset = offset;
+
+    return 0;
 }
 
 int fs_write(int fd, void *buf, size_t count)
@@ -176,7 +569,8 @@ int fs_write(int fd, void *buf, size_t count)
 
          if(write_characters == BLOCK_SIZE){
 
-            block_write(raw_write_block, &buf[character]);
+            block_write(raw_write_block, &((char*)buf)[character]);
+            memcpy(&bounce_buffer[offset_in_block], &((char*)buf)[character], write_characters);
 
          } else {
 
@@ -184,7 +578,7 @@ int fs_write(int fd, void *buf, size_t count)
 
             block_read(raw_write_block, bounce_buffer);
 
-            memcpy(&bounce_buffer[offset_in_block], &buf[character], write_characters);
+            memcpy(&bounce_buffer[offset_in_block], &((char*)buf)[character], write_characters);
 
             block_write(raw_write_block, bounce_buffer);
 
@@ -288,7 +682,8 @@ int fs_read(int fd, void *buf, size_t count)
 
           if(read_characters == BLOCK_SIZE){
 
-             block_read(raw_read_block, &buf[character]);
+            block_read(raw_read_block, &((char*)buf)[character]);
+            memcpy(&((char*)buf)[character], &bounce_buffer[offset_in_block], read_characters);
 
           } else {
 
@@ -296,7 +691,7 @@ int fs_read(int fd, void *buf, size_t count)
 
              block_read(raw_read_block, bounce_buffer);
 
-             memcpy(&buf[character], &bounce_buffer[offset_in_block], read_characters);
+             memcpy(&((char*)buf)[character], &bounce_buffer[offset_in_block], read_characters);
           }
 
           fdEntry->offset += read_characters;
