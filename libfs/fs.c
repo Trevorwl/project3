@@ -21,41 +21,14 @@
 bool disk_mounted = false;
 size_t root_directory_index = 0;
 struct fdTable* fd_table = NULL;
-size_t data_blocks=0;
+size_t data_blocks = 0;
 
-/*    SUPERBLOCK    */
-#define fs_signature "ECS150FS"
-#define fs_signature_length 8
-
-// superblock metadata
-struct __attribute__((packed)) superblock {
-	char signature[fs_signature_length];// "ECS150FS", 8 bytes
-	uint16_t total_blocks;				// Total amount of blocks of virtual disk, 2 bytes
-	uint16_t root_directory_index;		// Root directory block index, 2 bytes
-	uint16_t data_start_index; 			// Data block start index, 2 bytes
-	uint16_t data_block_amount;			// Amount of data blocks, 2 bytes
-	uint8_t fat_block_count;			// Number of blocks for FAT, 1 byte
-	uint8_t unused[BLOCK_SIZE - 17]; 	// Unused/Padding = 4096-(8+2+2+2+2+1) 
-};
 
 // static int fs_mounted = 0; 		//0 unmounted, 1 mounted
-static struct superblock sb;	
-static uint16_t *fat = NULL;	//pointer to FAT 
+struct superblock sb;
+uint16_t *fat = NULL;	//pointer to FAT
 
-
-/*    ROOT DIRECTORY    */
-#define fs_file_name_length 16
-#define fs_file_max_count 128
-
-// directory entry 
-struct __attribute__((packed)) fs_directory_entry {
-	char file_name[fs_file_name_length];// name of file, 16 bytes (including null terminator)
-	uint32_t file_size;					// file size, 4 bytes
-	uint16_t data_index;				// index, 2 bytes
-	uint8_t unused[10];					// padding to make total size 32 bytes
-};
-
-static struct fs_directory_entry root_directory[fs_file_max_count];
+struct fs_directory_entry root_directory[fs_file_max_count];
 
 // opens virtual disk, reads superblock, verifies 
 int fs_mount(const char *diskname)
@@ -67,6 +40,8 @@ int fs_mount(const char *diskname)
 	}
 
 	uint8_t block[BLOCK_SIZE]; // buffer to hold superblock content
+
+	memset(block,0,BLOCK_SIZE);
 
 	// verify block reads 4096 bytes 
 	if (block_read(0, block) < 0) {
@@ -108,22 +83,31 @@ int fs_mount(const char *diskname)
 	// save copy of supBlock's metadata content 
 	memcpy(&sb, supBlock, sizeof(struct superblock));
 
-	disk_mounted = true; //supBlock fs was successfully mounted on disk
 	// printf("FS mounted: %d blocks, FAT = %d blocks\n", sb.total_blocks, sb.fat_block_count);
 
     fd_table = init_fd_table();  // Make sure this is defined in fdTable.c
-        if (fd_table == NULL) {
-            block_disk_close();
-            return -1;
-        }
+
+    if (fd_table == NULL) {
+        block_disk_close();
+
+        memset(&sb, 0, sizeof(struct superblock));
+
+        return -1;
+    }
 
 	//load the file allocation table from disk
-	fat = malloc(sb.fat_block_count * BLOCK_SIZE);
+	fat = calloc(1, sb.fat_block_count * BLOCK_SIZE);
 
 	//verify mem allocation succeeded
 	if (!fat) {
 		// fprintf(stderr, "Failed to Allocated FAT\n");
 		block_disk_close();
+
+		memset(&sb, 0, sizeof(struct superblock));
+
+		free(fd_table);
+		fd_table=NULL;
+
 		return -1;
 	}
 
@@ -133,24 +117,50 @@ int fs_mount(const char *diskname)
 		// verify read succeeded
 		if (block_read(i + 1, block) < 0) {
 			// fprintf(stderr, "Failed to read FAT block %d\n", i);
+		    block_disk_close();
+
+		    memset(&sb, 0, sizeof(struct superblock));
+
+            free(fd_table);
+            fd_table=NULL;
+
 			free(fat);
-			block_disk_close();
+			fat=NULL;
+
 			return -1;
 		}
 		// if so, copy block (4096 bytes) amount of data into each fat[i]
 		memcpy((uint8_t *)fat + (i * BLOCK_SIZE), block, BLOCK_SIZE);
+
+		memset(block, 0, BLOCK_SIZE);
 	}
 
 	// read root directory into memory
 	if (block_read(sb.root_directory_index, block) < 0) {
 		// fprintf(stderr, "Failed to Read root directory block\n");
-		free(fat);
-		block_disk_close();
+	    block_disk_close();
+
+	    memset(root_directory, 0, sizeof(struct fs_directory_entry) * fs_file_max_count);
+
+	    memset(&sb, 0, sizeof(struct superblock));
+
+        free(fd_table);
+        fd_table=NULL;
+
+        free(fat);
+        fat=NULL;
+
 		return -1;
 	}
 
 	// copy full block data into root directory 
 	memcpy(root_directory, block, BLOCK_SIZE);
+
+    data_blocks = sb.data_block_amount;
+
+    root_directory_index = sb.root_directory_index;
+
+    disk_mounted = true; //supBlock fs was successfully mounted on disk
 
 	return 0;
 }
@@ -167,13 +177,20 @@ int fs_umount(void)
 	free(fat); 
 	fat = NULL;
 
+	memset(root_directory, 0, sizeof(struct fs_directory_entry) * fs_file_max_count);
+	memset(&sb,0,sizeof(struct superblock));
+
+    free(fd_table);
+    fd_table=NULL;
+
+    data_blocks=0;
+    root_directory_index=0;
+    disk_mounted = false; // reset mount flag
+
 	// close disk file
 	if (block_disk_close() < 0) {
 		return -1;
 	}
-
-	disk_mounted = false; // reset mount flag 
-
 	return 0;
 }
 
@@ -230,7 +247,7 @@ int fs_create(const char *filename)
 
     // Check if filename already exists
     for (int i = 0; i < fs_file_max_count; i++) {
-        if (strncmp(root_directory[i].file_name, filename, FS_FILENAME_LEN) == 0)
+        if (strcmp(root_directory[i].file_name, filename) == 0)
             return -1;  // File already exists
     }
 
@@ -249,8 +266,11 @@ int fs_create(const char *filename)
 
     // init new file entry
     memset(&root_directory[free_index], 0, sizeof(struct fs_directory_entry));
-    strncpy(root_directory[free_index].file_name, filename, FS_FILENAME_LEN-1);
-    root_directory[free_index].file_name[FS_FILENAME_LEN - 1] = '\0'; 
+
+    strcpy(root_directory[free_index].file_name, filename);
+
+//    strncpy(root_directory[free_index].file_name, filename, FS_FILENAME_LEN-1);
+//    root_directory[free_index].file_name[FS_FILENAME_LEN - 1] = '\0';
     root_directory[free_index].file_size = 0;
     root_directory[free_index].data_index = FAT_EOC;
 
@@ -272,7 +292,7 @@ int fs_delete(const char *filename)
     int file_index = -1;
     // find file in root dir
     for(int i = 0; i < fs_file_max_count; i++){
-        if (strncmp(root_directory[i].file_name, filename, FS_FILENAME_LEN) == 0) {
+        if (strcmp(root_directory[i].file_name, filename) == 0) {
             file_index = i;
             break;
         }
@@ -293,6 +313,12 @@ int fs_delete(const char *filename)
         uint16_t next = fat[current];
         fat[current] = 0;
         current = next;
+    }
+
+
+    for(size_t fblock = 0; fblock < sb.fat_block_count;fblock++){
+        uint8_t* fat_block=(uint8_t*)fat + fblock * BLOCK_SIZE;
+        block_write(FAT_BLOCK_START_INDEX + fblock,fat_block);
     }
 
     // clear root dir entry
@@ -341,7 +367,7 @@ int fs_open(const char *filename)
 
     // find file in root dir
     for (int i = 0; i < fs_file_max_count; i++) {
-        if (strncmp(root_directory[i].file_name, filename, FS_FILENAME_LEN) == 0) {
+        if (strcmp(root_directory[i].file_name, filename) == 0) {
             dir_index = i;
             break;
         }
@@ -365,7 +391,7 @@ int fs_open(const char *filename)
     }
 
     // allocate and fill fdNodes
-    struct fdNode *new_fd = malloc(sizeof(struct fdNode));
+    struct fdNode *new_fd = calloc(1,sizeof(struct fdNode));
     if (!new_fd) {
         return -1;
     }
@@ -469,7 +495,7 @@ int fs_lseek(int fd, size_t offset)
     }
 
     // check offset is within file size
-    if (offset > node->size) {
+    if (offset < 0 || offset > node->size) {
         printf("[DEBUG] Offset %zu is beyond file size %zu\n", offset, (size_t)node->size);
         return -1;
     }
@@ -569,8 +595,8 @@ int fs_write(int fd, void *buf, size_t count)
 
          if(write_characters == BLOCK_SIZE){
 
-            block_write(raw_write_block, &((char*)buf)[character]);
-            memcpy(&bounce_buffer[offset_in_block], &((char*)buf)[character], write_characters);
+            block_write(raw_write_block, &(((char*)buf)[character]));
+//            memcpy(&bounce_buffer[offset_in_block], &(((char*)buf)[character]), write_characters);
 
          } else {
 
@@ -578,7 +604,7 @@ int fs_write(int fd, void *buf, size_t count)
 
             block_read(raw_write_block, bounce_buffer);
 
-            memcpy(&bounce_buffer[offset_in_block], &((char*)buf)[character], write_characters);
+            memcpy(&bounce_buffer[offset_in_block], &(((char*)buf)[character]), write_characters);
 
             block_write(raw_write_block, bounce_buffer);
 
@@ -610,6 +636,8 @@ int fs_write(int fd, void *buf, size_t count)
     dir_entry->size=(uint32_t)fdEntry->size;
 
     block_write(root_directory_index,bounce_buffer);
+
+    root_directory[fdEntry->dir_entry_index].file_size = (uint32_t)fdEntry->size;
 
     return bytesWritten;
 }
@@ -682,8 +710,8 @@ int fs_read(int fd, void *buf, size_t count)
 
           if(read_characters == BLOCK_SIZE){
 
-            block_read(raw_read_block, &((char*)buf)[character]);
-            memcpy(&((char*)buf)[character], &bounce_buffer[offset_in_block], read_characters);
+            block_read(raw_read_block, &(((char*)buf)[character]));
+//            memcpy(&(((char*)buf)[character]), &bounce_buffer[offset_in_block], read_characters);
 
           } else {
 
@@ -691,7 +719,7 @@ int fs_read(int fd, void *buf, size_t count)
 
              block_read(raw_read_block, bounce_buffer);
 
-             memcpy(&((char*)buf)[character], &bounce_buffer[offset_in_block], read_characters);
+             memcpy(&(((char*)buf)[character]), &bounce_buffer[offset_in_block], read_characters);
           }
 
           fdEntry->offset += read_characters;

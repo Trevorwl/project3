@@ -176,7 +176,11 @@ bool add_file_to_disk(struct fdNode* fd){
 
     block_write(root_directory_index, disk_buffer);
 
+    root_directory[fd->dir_entry_index].data_index= (uint16_t)available_block;
+
     set_fat_entry(dirEntry->index, FAT_EOC);
+
+    fat[dirEntry->index]=FAT_EOC;
 
     return true;
 }
@@ -193,6 +197,8 @@ int erase_file(size_t data_block_start){
         uint16_t next_block=get_fat_entry(data_block);
 
         set_fat_entry(data_block,0);
+
+        fat[data_block]=0;
 
         if(next_block!=FAT_EOC){
 
@@ -317,7 +323,11 @@ size_t allocate_more_blocks(struct fdNode* fd, size_t needed_blocks){
 
         set_fat_entry(end_block, (uint16_t)available_block);
 
+        fat[end_block] = (uint16_t)available_block;
+
         set_fat_entry(available_block, FAT_EOC);
+
+        fat[available_block]=FAT_EOC;
 
         end_block = available_block;
    }

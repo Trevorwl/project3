@@ -5,6 +5,7 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include "fdTable.h"
+#include "disk.h"
 
 /** Maximum filename length (including the NULL character) */
 #ifndef FS_FILENAME_LEN
@@ -21,6 +22,18 @@
 #ifndef FS_OPEN_MAX_COUNT
 #define FS_OPEN_MAX_COUNT 32
 #endif
+
+#ifndef BLOCK_SIZE
+#define BLOCK_SIZE 4096
+#endif
+
+/*    ROOT DIRECTORY    */
+#define fs_file_name_length 16
+#define fs_file_max_count 128
+
+/*    SUPERBLOCK    */
+#define fs_signature "ECS150FS"
+#define fs_signature_length 8
 
 /*
  * variables needed for part 4
@@ -42,6 +55,32 @@ extern struct fdTable* fd_table;
  * total data blocks
  */
 extern size_t data_blocks;
+
+// superblock metadata
+struct __attribute__((packed)) superblock {
+    char signature[fs_signature_length];// "ECS150FS", 8 bytes
+    uint16_t total_blocks;              // Total amount of blocks of virtual disk, 2 bytes
+    uint16_t root_directory_index;      // Root directory block index, 2 bytes
+    uint16_t data_start_index;          // Data block start index, 2 bytes
+    uint16_t data_block_amount;         // Amount of data blocks, 2 bytes
+    uint8_t fat_block_count;            // Number of blocks for FAT, 1 byte
+    uint8_t unused[BLOCK_SIZE - 17];    // Unused/Padding = 4096-(8+2+2+2+2+1)
+};
+
+
+// directory entry
+struct __attribute__((packed)) fs_directory_entry {
+    char file_name[fs_file_name_length];// name of file, 16 bytes (including null terminator)
+    uint32_t file_size;                 // file size, 4 bytes
+    uint16_t data_index;                // index, 2 bytes
+    uint8_t unused[10];                 // padding to make total size 32 bytes
+};
+
+extern uint16_t *fat;
+
+extern struct fs_directory_entry root_directory[FS_FILE_MAX_COUNT];
+
+extern struct superblock sb;
 
 /**
  * fs_mount - Mount a file system
