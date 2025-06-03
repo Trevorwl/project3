@@ -1,51 +1,54 @@
-#include "fs.h"
-
+#include <fcntl.h>
 #include <stdio.h>
-#include <string.h>
 #include <stdlib.h>
-#include <ctype.h>
-#include <math.h>
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <time.h>
+#include <unistd.h>
+#include <string.h>
+#include <stdbool.h>
+
+#include "disk.h"
+#include "fs.h"
+#include "utilities.h"
 
 void do_sequential_writes();
 void do_long_write();
-void usage();
+void read_write_exit(char* function,char* message);
 
 /*
- * usage:
- *
- * ./read_write.x <diskname>
- * 
- *
- *---tests----
- *
+
  *	do_long_write(): performs a long write on disk
  *
  *	do_sequential_writes(): performs many writes in sequence
  */
 int main(int argc, char** argv){
+    srand(time(0));
+    size_t DATA_BLOCKS = 1 + rand() % BLOCK_LIMIT;
 
-    if(argc != 2){
-        usage();
-        exit(0);
+    if(DATA_BLOCKS < 100){
+        DATA_BLOCKS = 100;
     }
 
-    char* diskname= argv[1];
+    unlink("read_write.fs");
+    create_disk(DATA_BLOCKS, "read_write.fs");
 
-    int ret=fs_mount(diskname);
+    if(fs_mount("read_write.fs") == -1){
 
-    if(ret==-1){
-        printf("error mounting file\n");
-        exit(0);
+        read_write_exit("main","error mounting disk");
     }
 
     do_long_write();
     do_sequential_writes();
 
-    ret=fs_umount();
+    if(fs_umount() == -1){
 
-    if(ret==-1){
-        printf("error unmounting file\n");
+        read_write_exit("main","error unmounting disk");
    }
+
+    unlink("read_write.fs");
+
+    return EXIT_SUCCESS;
 }
 
 /*
@@ -53,49 +56,83 @@ int main(int argc, char** argv){
  * multiple sequential writes
  */
 void do_sequential_writes(){
+    char* function = "do_sequential_writes";
 
-    fs_create("1_to_9999");
-    int fd = fs_open("1_to_9999");
+    if(fs_create("seq_writes") == -1){
+
+        read_write_exit(function,"error creating seq_writes");
+    }
+
+    int fd = fs_open("seq_writes");
+
+    if(fd == -1){
+
+        read_write_exit(function,"error opening seq_writes");
+    }
+
+    char number_string[32];
 
     for(int i=0;i<10000;i++){
-        char c[32];
 
-        sprintf(c,"%d\n",i);
+        memset(number_string, 0, 32 * sizeof(char));
 
-        fs_write(fd,c,strlen(c));
+        sprintf(number_string, "%d\n", i);
+
+        if(fs_write(fd,number_string,strlen(number_string)) == -1){
+
+            read_write_exit(function,"error doing sequential writes");
+        }
     }
 
-    fs_lseek(fd,0);
+    if(fs_lseek(fd, 0) == -1){
 
-    int stat=fs_stat(fd);
+        read_write_exit(function,"lseek error after sequential writes");
+    }
 
-    char* buf=(char*)calloc(1,stat + 1);
-    buf[stat]=0;
-    fs_read(fd,buf,stat);
+    int stat = fs_stat(fd);
 
-    fs_close(fd);
-    fs_delete("1_to_9999");
+    if(stat == -1){
 
-   char* token = strtok(buf, "\n");
-   int expected = 0;
+        read_write_exit(function,"stat error after sequential writes");
+    }
 
-    while (token != NULL) {
-        int actual = atoi(token);
+    char* read_result = (char*)calloc(1,stat + 1);
 
-        if (actual != expected) {
+    read_result[stat]=0;
 
-           printf("do_sequential_writes: data written or read improperly\n");
+    if(fs_read(fd, read_result, stat) == -1){
 
-           return;
+        read_write_exit(function,"read error after sequential writes");
+    }
+
+    if(fs_close(fd) == -1){
+
+        read_write_exit(function,"error closing large file");
+    }
+
+   char* number_buffer = strtok(read_result, "\n");
+   int expected_number = 0;
+
+    while (number_buffer != NULL) {
+
+        if(expected_number > 9999){
+
+            read_write_exit(function,"read more than 10,000 numbers");
         }
 
-        expected++;
-        token = strtok(NULL, "\n");
+        int actual_number = atoi(number_buffer);
+
+        if (actual_number != expected_number) {
+
+            read_write_exit(function,"wrong number read from file");
+        }
+
+        expected_number++;
+        number_buffer = strtok(NULL, "\n");
     }
 
-    if(expected != 10000){
-	printf("do_sequential_writes: data written or read improperly\n");
-	return;
+    if(expected_number < 10000){
+        read_write_exit(function,"read less than 10,000 numbers");
     }
 
     printf("do_sequential_writes: pass\n");
@@ -106,67 +143,103 @@ void do_sequential_writes(){
  */
 void do_long_write(){
 
-     size_t bufLength = 48894;  //bytes required for write
+     char* function = "do_long_write";
 
-     char* buf = (char*)calloc(1, bufLength);
+     size_t write_buffer_length = 48894;  //bytes required for write
 
-     size_t offset = 0;
+     char* write_buffer = (char*)calloc(1, write_buffer_length);
 
-     char storeNum[32];
+     size_t write_offset = 0;
+
+     char number_string[32];
 
      for(int i = 1; i < 10001; i++){
 
-         sprintf(storeNum, "%d\n", i);
+         memset(number_string, 0, 32 * sizeof(char));
 
-         int length = strlen(storeNum);
+         sprintf(number_string, "%d\n", i);
 
-         memcpy(&buf[offset], storeNum, length);
+         int number_string_length = strlen(number_string);
 
-         offset += length;
+         memcpy(&write_buffer[write_offset], number_string, number_string_length);
+
+         write_offset += number_string_length;
      }
 
-      fs_create("long_write");
-      int fd=fs_open("long_write");
+      if(fs_create("long_writes")==-1){
 
-      fs_write(fd,buf,bufLength);
-      fs_lseek(fd,0);
+          read_write_exit(function,"error creating file long_writes");
+      }
 
-      int stat=fs_stat(fd);
-      char* buf2=(char*)calloc(1,stat + 1);
+      int fd = fs_open("long_writes");
 
-      buf2[stat]=0;
-      fs_read(fd,buf2,stat);
+      if(fd==-1){
 
-      fs_close(fd);
-      fs_delete("long_write");
+          read_write_exit(function,"error opening long_writes");
+      }
 
-      char* token = strtok(buf2, "\n");
-      int expected = 1;
+      if(fs_write(fd,write_buffer,write_buffer_length) ==-1){
 
-     while (token != NULL) {
-        int actual = atoi(token);
+          read_write_exit(function,"error writing long data to long_writes");
+      }
 
-        if (actual != expected) {
+      if(fs_lseek(fd,0) == -1){
 
-           printf("do_long_write: data written or read improperly\n");
+          read_write_exit(function,"lseek error after writing long data");
+      }
 
-           return;
+      int stat = fs_stat(fd);
+
+      if(stat == -1){
+
+          read_write_exit(function,"stat error after writing long data");
+      }
+
+      char* read_result=(char*)calloc(1,stat + 1);
+
+      read_result[stat]=0;
+
+      if(fs_read(fd,read_result,stat) == -1){
+
+          read_write_exit(function,"error reading long data");
+      }
+
+      if(fs_close(fd) ==-1){
+
+          read_write_exit(function,"error closing large file");
+      }
+
+      char* number_buffer = strtok(read_result, "\n");
+      int expected_number = 1;
+
+     while (number_buffer != NULL) {
+
+         if(expected_number > 10000){
+
+             read_write_exit(function,"more than 10,000 numbers read");
+         }
+
+        int actual_number = atoi(number_buffer);
+
+        if (actual_number != expected_number) {
+
+            read_write_exit(function,"wrong number read from file");
         }
 
-        expected++;
-        token = strtok(NULL, "\n");
+        expected_number++;
+        number_buffer = strtok(NULL, "\n");
      }
 	
-     if(expected != 10001){
+     if(expected_number < 10001){
 
-	   printf("do_long_write: data written or read improperly\n");
-
-	   return;
+         read_write_exit(function,"less than 10,000 numbers read");
      }
 
      printf("do_long_write: pass\n");
 }
 
-void usage(){
-    	printf("\n\n------usage: read_write.x:\n\n\t.\\read_write.x <diskname>\n\n\n");
+void read_write_exit(char* function,char* message){
+    printf("%s: %s\n",function,message);
+    unlink("read_write.fs");
+    exit(EXIT_FAILURE);
 }

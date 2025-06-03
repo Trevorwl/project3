@@ -13,6 +13,8 @@
 
 uint8_t* utilities_buffer = NULL;
 
+size_t BLOCK_LIMIT = 8198;
+
 struct __attribute__((__packed__)) metadata{
     uint8_t signature[8];
     uint16_t totalBlocks;
@@ -62,7 +64,7 @@ void hex_dump(void *data, size_t length) {
 }
 
 int create_disk(size_t data_blocks,char* filename){
-    if(data_blocks==0 || data_blocks > 8198){
+    if(data_blocks==0 || data_blocks > BLOCK_LIMIT){
         printf("create_disk: invalid data block total, valid data block total [1,8198]\n");
         return -1;
     }
