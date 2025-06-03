@@ -2,6 +2,7 @@
 .DS_Store
 .project
 *.txt
+!important_tester_file.txt
 libfs/libfs.a
 *.fs
 *.x

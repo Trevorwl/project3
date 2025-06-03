@@ -126,3 +126,170 @@ int create_disk(size_t data_blocks,char* filename){
     return 0;
 }
 
+void print_allocated_blocks(struct fdNode* fd){
+    size_t current_block=fd->first_data_block;
+
+    printf("Allocated blocks for %s:\n",fd->filename);
+
+    size_t total_blocks=0;
+
+    while(current_block!=FAT_EOC){
+        printf("%zu ",current_block);
+
+        current_block = get_fat_entry(current_block);
+
+        total_blocks++;
+    }
+
+    printf("\ntotal blocks: %zu\n",total_blocks);
+}
+
+size_t free_blocks(){
+    if(disk_mounted==false){
+        return 0;
+    }
+
+    if(utilities_buffer==NULL){
+        utilities_buffer = (uint8_t*)calloc(1, bounce_buffer_size);
+    } else {
+        memset(utilities_buffer,0,bounce_buffer_size);
+    }
+
+    size_t free_blocks = 0;
+
+    for(size_t fat_block_index = (size_t)FAT_BLOCK_START_INDEX;
+            fat_block_index < root_directory_index; fat_block_index++){
+
+        block_read(fat_block_index, utilities_buffer);
+
+        uint16_t* fat_entry=(uint16_t*)utilities_buffer;
+
+        for(int entry = 0; entry < FAT_ENTRIES; entry++){
+
+            size_t data_block_index = (fat_block_index - (size_t)FAT_BLOCK_START_INDEX)
+                           * (size_t)FAT_ENTRIES + (size_t)entry;
+
+            if(data_block_index == data_blocks){
+                break;
+            }
+
+            if(*fat_entry==0){
+                 free_blocks++;
+            }
+
+            fat_entry++;
+        }
+
+        memset(utilities_buffer,0,bounce_buffer_size);
+    }
+
+    return free_blocks;
+}
+
+int load_external_file(char* filename){
+    if(disk_mounted==false){
+        printf("load_external_file: disk not mounted\n");
+        return -1;
+    }
+
+    int fd = open(filename,O_RDONLY);
+
+    if(fd==-1){
+        printf("load_external_file: cant open file\n");
+        return -1;
+    }
+
+    struct stat st;
+
+    if (fstat(fd, &st) == -1) {
+        printf("load_external_file: stat error\n");
+        close(fd);
+        return -1;
+    }
+
+    off_t _filesize = st.st_size;
+
+    if(_filesize<0){
+        printf("load_external_file: negative offset\n");
+        close(fd);
+        return -1;
+    }
+
+    if(_filesize==0){
+        if(fs_create(filename)==-1){
+            printf("load_external_file: file already exists in fs\n");
+            close(fd);
+            return -1;
+         }
+         close(fd);
+         return 0;
+    }
+
+    size_t filesize = _filesize;
+
+    if(total_block_size(filesize) > free_blocks()){
+        printf("load_external_file: file doesnt fit on disk\n");
+        close(fd);
+        return -1;
+    }
+
+    if(utilities_buffer==NULL){
+        utilities_buffer = (uint8_t*)calloc(1, bounce_buffer_size);
+    } else {
+        memset(utilities_buffer,0,bounce_buffer_size);
+    }
+
+    if(fs_create(filename)==-1){
+          printf("load_external_file: file already exists in fs\n");
+          close(fd);
+          return -1;
+    }
+
+    int newFd = fs_open(filename);
+
+    while(1){
+        ssize_t bytes_read = read(fd, utilities_buffer, bounce_buffer_size);
+
+        if(bytes_read==0){
+            break;
+        }
+
+        int ret=fs_write(newFd,utilities_buffer,bytes_read);
+
+        if(ret==-1){
+            printf("load_external_file: write failed\n");
+            fs_close(newFd);
+            close(fd);
+            return -1;
+        }
+
+    }
+
+    fs_close(newFd);
+    close(fd);
+
+    return 0;
+}
+
+char* file_as_string(char* filename){
+    FILE* file = fopen(filename,"r");
+
+    fseek(file, 0, SEEK_END);
+
+    size_t file_size = (size_t)ftell(file);
+
+    rewind(file);
+
+    char* buffer = (char*)calloc(1,file_size + 1);
+
+    buffer[file_size]=0;
+
+    fread(buffer ,1, file_size, file);
+
+    fclose(file);
+
+    return buffer;
+}
+
+
+
