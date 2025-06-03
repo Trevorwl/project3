@@ -14,9 +14,6 @@
 #define FS_OPEN_MAX_COUNT 32
 #endif
 
-/*
- * These 3 variables can be assigned in fs_mount
- */
 
 bool disk_mounted = false;
 size_t root_directory_index = 0;
@@ -30,12 +27,13 @@ uint16_t *fat = NULL;	//pointer to FAT
 
 struct fs_directory_entry root_directory[fs_file_max_count];
 
+bool isValidMetadata();
+
 // opens virtual disk, reads superblock, verifies 
 int fs_mount(const char *diskname)
 {
 	//check file descriptor was stored successfully
 	if(block_disk_open(diskname) < 0) { 
-		// fprintf(stderr, "Failed to open disk\n"); //for testing. remove later
 		return -1; 
 	}
 
@@ -45,7 +43,6 @@ int fs_mount(const char *diskname)
 
 	// verify block reads 4096 bytes 
 	if (block_read(0, block) < 0) {
-		// fprintf(stderr, "Failed to read superblock\n"); //for debugging
 		block_disk_close();
 		return -1;
 	}
@@ -53,39 +50,16 @@ int fs_mount(const char *diskname)
 	// create actual superblock using block[] info
 	struct superblock *supBlock = (struct superblock *) block;
 
-	// check supBlock signature matches "ECS150FS"
-	if (strncmp(supBlock->signature, fs_signature, fs_signature_length) != 0) {
-		//use strncmp since signature has no null terminator
-		
-		// fprintf(stderr, "Invalid file system signature\n");
-		block_disk_close();
-		return -1;
-	}
+    memcpy(&sb, supBlock, sizeof(struct superblock));
 
-
-	int disk_blocks = block_disk_count();
-
-	/*  Validate superblock data:
-		Fat_block_count is nonzero, 
-		Root directory block immediately follows the FAT, 
-		Data blocks follow the root, 
-		All regions fit within the actual disk size.
-	*/ 
-	if (supBlock->fat_block_count == 0 ||
-	    supBlock->root_directory_index != 1 + supBlock->fat_block_count ||
-	    supBlock->data_start_index != supBlock->root_directory_index + 1 ||
-	    supBlock->data_start_index + supBlock->data_block_amount > disk_blocks) {
-	    
+	if(isValidMetadata()==false){
 	    block_disk_close();
+	    memset(&sb, 0, sizeof(struct superblock));
+
 	    return -1;
 	}
 
-	// save copy of supBlock's metadata content 
-	memcpy(&sb, supBlock, sizeof(struct superblock));
-
-	// printf("FS mounted: %d blocks, FAT = %d blocks\n", sb.total_blocks, sb.fat_block_count);
-
-    fd_table = init_fd_table();  // Make sure this is defined in fdTable.c
+    fd_table = init_fd_table();
 
     if (fd_table == NULL) {
         block_disk_close();
@@ -100,7 +74,6 @@ int fs_mount(const char *diskname)
 
 	//verify mem allocation succeeded
 	if (!fat) {
-		// fprintf(stderr, "Failed to Allocated FAT\n");
 		block_disk_close();
 
 		memset(&sb, 0, sizeof(struct superblock));
@@ -116,7 +89,6 @@ int fs_mount(const char *diskname)
 		
 		// verify read succeeded
 		if (block_read(i + 1, block) < 0) {
-			// fprintf(stderr, "Failed to read FAT block %d\n", i);
 		    block_disk_close();
 
 		    memset(&sb, 0, sizeof(struct superblock));
@@ -137,7 +109,7 @@ int fs_mount(const char *diskname)
 
 	// read root directory into memory
 	if (block_read(sb.root_directory_index, block) < 0) {
-		// fprintf(stderr, "Failed to Read root directory block\n");
+
 	    block_disk_close();
 
 	    memset(root_directory, 0, sizeof(struct fs_directory_entry) * fs_file_max_count);
@@ -231,17 +203,14 @@ int fs_info(void)
 
 int fs_create(const char *filename)
 {
-    // validate mounted and filename
-    // if(!disk_mounted || filename == NULL || strlen(filename) == 0 || strlen(filename) >= FS_FILENAME_LEN){
-    //     return -1;
-    // }
 
     if (!disk_mounted) {
-        printf("[DEBUG] fs_create: no disk mounted\n");
         return -1;
     }
-    if (!filename || strlen(filename) == 0 || strlen(filename) >= FS_FILENAME_LEN) {
-        printf("[DEBUG] fs_create: invalid filename = '%s'\n", filename ? filename : "NULL");
+
+    if (!filename || strlen(filename) == 0 || strlen(filename) >= FS_FILENAME_LEN
+            || strchr(filename, '/') != NULL) {
+
         return -1;
     }
 
@@ -269,8 +238,6 @@ int fs_create(const char *filename)
 
     strcpy(root_directory[free_index].file_name, filename);
 
-//    strncpy(root_directory[free_index].file_name, filename, FS_FILENAME_LEN-1);
-//    root_directory[free_index].file_name[FS_FILENAME_LEN - 1] = '\0';
     root_directory[free_index].file_size = 0;
     root_directory[free_index].data_index = FAT_EOC;
 
@@ -285,7 +252,8 @@ int fs_create(const char *filename)
 int fs_delete(const char *filename)
 {
     // validate mounted and filename
-    if(!disk_mounted || filename == NULL || strlen(filename) == 0 || strlen(filename) >= FS_FILENAME_LEN){
+    if(!disk_mounted || filename == NULL || strlen(filename) == 0 || strlen(filename) >= FS_FILENAME_LEN
+            || strchr(filename, '/') != NULL){
         return -1;
     }
 
@@ -307,19 +275,8 @@ int fs_delete(const char *filename)
         return -1;
     }
     
-    // free all FAT blocks linked to file
-    uint16_t current = root_directory[file_index].data_index;
-    while(current != FAT_EOC){
-        uint16_t next = fat[current];
-        fat[current] = 0;
-        current = next;
-    }
+    erase_file(root_directory[file_index].data_index);
 
-
-    for(size_t fblock = 0; fblock < sb.fat_block_count;fblock++){
-        uint8_t* fat_block=(uint8_t*)fat + fblock * BLOCK_SIZE;
-        block_write(FAT_BLOCK_START_INDEX + fblock,fat_block);
-    }
 
     // clear root dir entry
     memset(&root_directory[file_index], 0, sizeof(struct fs_directory_entry));
@@ -359,7 +316,7 @@ int fs_open(const char *filename)
     if (!disk_mounted || 
         filename == NULL || 
         strlen(filename) == 0 || 
-        strlen(filename) >= FS_FILENAME_LEN) {
+        strlen(filename) >= FS_FILENAME_LEN || strchr(filename, '/') != NULL) {
         return -1;
     }
 
@@ -426,7 +383,6 @@ int fs_close(int fd)
         !fd_table->fdTable[fd] || 
         !fd_table->fdTable[fd]->in_use) {
 
-        printf("[DEBUG] Invalid fd or fd table\n");
         return -1;
     }
 
@@ -458,7 +414,6 @@ int fs_stat(int fd)
         !fd_table->fdTable[fd] || 
         !fd_table->fdTable[fd]->in_use) {
 
-        printf("[DEBUG] Invalid fd or fd table\n");
         return -1;
     }
 
@@ -483,20 +438,19 @@ int fs_lseek(int fd, size_t offset)
         !fd_table->fdTable[fd] || 
         !fd_table->fdTable[fd]->in_use) {
 
-        printf("[DEBUG] Invalid fd or fd table\n");
         return -1;
     }
 
     // get fd entry
     struct fdNode *node = fd_table->fdTable[fd];
     if (node == NULL || !node->in_use) {
-        printf("[DEBUG] FD %d is not in use\n", fd);
+
         return -1;
     }
 
     // check offset is within file size
     if (offset < 0 || offset > node->size) {
-        printf("[DEBUG] Offset %zu is beyond file size %zu\n", offset, (size_t)node->size);
+
         return -1;
     }
 
@@ -596,7 +550,6 @@ int fs_write(int fd, void *buf, size_t count)
          if(write_characters == BLOCK_SIZE){
 
             block_write(raw_write_block, &(((char*)buf)[character]));
-//            memcpy(&bounce_buffer[offset_in_block], &(((char*)buf)[character]), write_characters);
 
          } else {
 
@@ -711,7 +664,6 @@ int fs_read(int fd, void *buf, size_t count)
           if(read_characters == BLOCK_SIZE){
 
             block_read(raw_read_block, &(((char*)buf)[character]));
-//            memcpy(&(((char*)buf)[character]), &bounce_buffer[offset_in_block], read_characters);
 
           } else {
 
@@ -736,5 +688,57 @@ int fs_read(int fd, void *buf, size_t count)
     }
 
     return bytesRead;
+}
+
+bool isValidMetadata(){
+    if (strncmp(sb.signature, "ECS150FS", 8) != 0){
+        return false;
+    }
+
+    size_t totalBlocks = (size_t)sb.total_blocks;
+    size_t min_blocks = 4;//1 super+1 fat+1 root directory+1 data block
+
+    if(totalBlocks != block_disk_count()){
+        return false;
+    }
+
+    if(totalBlocks < min_blocks){
+        return false;
+    }
+
+    size_t rootDirectoryIndex = (size_t)sb.root_directory_index;
+    size_t dataStartIndex = (size_t)sb.data_start_index;
+    size_t totalDataBlocks = (size_t)sb.data_block_amount;
+    size_t totalFatBlocks = (size_t)sb.fat_block_count;
+
+    if(totalDataBlocks < 1 || totalFatBlocks < 1){
+        return false;
+    }
+
+    //excluding fat blocks, at least 3 blocks must be reserved(super+root+data)
+    //excluding data blocks, at least 3 blocks must be reserved(super+root+fat)
+    if(totalDataBlocks > totalBlocks - 3|| totalFatBlocks > totalBlocks-3){
+        return false;
+    }
+
+    size_t extra_fat_block = (totalDataBlocks % (size_t)FAT_ENTRIES == 0) ? 0 : 1;
+
+    size_t fat_blocks_required = totalDataBlocks / (size_t)FAT_ENTRIES + extra_fat_block;
+
+    if(fat_blocks_required != totalFatBlocks){
+        return false;
+    }
+
+    if(totalDataBlocks > totalFatBlocks * (size_t)FAT_ENTRIES){
+        return false;
+    }
+
+    //1+ totalFatBlocks and 1 + totalFatBlocks + 1 because of 0-based indexing
+    if(rootDirectoryIndex!= 1 + totalFatBlocks
+            || dataStartIndex!= 1 + totalFatBlocks + 1){
+        return false;
+    }
+
+    return true;
 }
 
