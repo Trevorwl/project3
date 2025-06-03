@@ -24,13 +24,15 @@ int main(int argc,char** argv){
 
     size_t FILES = 23;
 
-    size_t DELETED_FILES = 7;
-
+    /*These file sizes will create enough blocks to fill all 99 blocks*/
     size_t file_byte_sizes[] = {17004, 20277, 23363, 9365, 9352,
             3952, 10760, 8830, 14222, 8313, 15659,
             9914, 26965, 30484, 22970, 5630, 19535,
             13239, 18119, 28707, 18722, 1493, 20277};
 
+    size_t DELETED_FILES = 7;
+
+    /*deleting these files creates enough room for the big file we will write in*/
     size_t deleted_file_indices[] = {2, 4, 8, 12, 15, 17, 20};
 
     unlink("fa_test.fs");
