@@ -36,21 +36,17 @@ endif
 ## Include path
 CFLAGS 	+= -I$(FSPATH)
 ## Dependency generation
-CFLAGS	+= -MMD -MP
+CFLAGS	+= -MMD
 
 # Linker options
 LDFLAGS := -L$(FSPATH) -lfs
 
 # Application objects to compile
-objs := $(addprefix obj/, $(patsubst %.x,%.o,$(programs)))
+objs := $(patsubst %.x,%.o,$(programs))
 
 # Include dependencies
-deps := $(objs:.o=.d)
+deps := $(patsubst %.o,%.d,$(objs))
 -include $(deps)
-
-# Ensure obj directory exists
-obj:
-	mkdir -p obj
 
 # Rule for libfs.a
 $(libfs): FORCE
@@ -58,12 +54,12 @@ $(libfs): FORCE
 	$(Q)$(MAKE) V=$(V) D=$(D) -C $(FSPATH)
 
 # Generic rule for linking final applications
-%.x: obj/%.o $(libfs)
+%.x: %.o $(libfs)
 	@echo "LD	$@"
 	$(Q)$(CC) -o $@ $< $(LDFLAGS)
 
 # Generic rule for compiling objects
-obj/%.o: %.c | obj
+%.o: %.c
 	@echo "CC	$@"
 	$(Q)$(CC) $(CFLAGS) -c -o $@ $<
 
@@ -71,14 +67,10 @@ obj/%.o: %.c | obj
 clean: FORCE
 	@echo "CLEAN	$(CUR_PWD)"
 	$(Q)$(MAKE) V=$(V) D=$(D) -C $(FSPATH) clean
-	$(Q)rm -rf obj $(programs)
+	$(Q)rm -rf $(objs) $(deps) $(programs)
 
 # Keep object files around
-.PRECIOUS: obj/%.o
+.PRECIOUS: %.o
 .PHONY: FORCE
 FORCE:
 
-#usage: make test args="<command> <diskname>"
-test:
-	./tester.x $(args)
-	

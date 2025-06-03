@@ -8,8 +8,5 @@ libfs/libfs.a
 *.x
 !fs_make.x
 !fs_ref.x
-
-# Folders
-apps/obj/
-apps/exec/
-libfs/obj/
+*.d
+*.o
