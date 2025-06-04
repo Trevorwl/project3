@@ -9,6 +9,7 @@
 
 #include "disk.h"
 #include "fs.h"
+#include "utilities.h"
 
 #ifndef FS_OPEN_MAX_COUNT
 #define FS_OPEN_MAX_COUNT 32
@@ -86,6 +87,7 @@ int fs_mount(const char *diskname)
 
 	// copy each FAT block into fat pointer
 	for (uint8_t i = 0; i < sb.fat_block_count; i++) {
+	    memset(block,0,BLOCK_SIZE);
 		
 		// verify read succeeded
 		if (block_read(i + 1, block) < 0) {
@@ -103,8 +105,6 @@ int fs_mount(const char *diskname)
 		}
 		// if so, copy block (4096 bytes) amount of data into each fat[i]
 		memcpy((uint8_t *)fat + (i * BLOCK_SIZE), block, BLOCK_SIZE);
-
-		memset(block, 0, BLOCK_SIZE);
 	}
 
 	memset(block, 0, BLOCK_SIZE);
@@ -176,6 +176,18 @@ int fs_info(void)
 	if (!disk_mounted) {
 		return -1;
 	}
+
+
+//    hex_dump(fat,BLOCK_SIZE);
+//    printf("\n-------------------------\n");
+//
+//    init_bounce_buffer();
+//    clear_bounce_buffer();
+//    block_read(FAT_BLOCK_START_INDEX,bounce_buffer);
+//    hex_dump(bounce_buffer,BLOCK_SIZE);
+//    clear_bounce_buffer();
+//    printf("\n-------------------------\n");
+
 	/* Print format based on provided fs_ref.x ref program */
 	printf("FS Info:\n");
 	printf("total_blk_count=%hu\n", sb.total_blocks);
@@ -183,12 +195,14 @@ int fs_info(void)
 	printf("rdir_blk=%hu\n", sb.root_directory_index);
 	printf("data_blk=%hu\n", sb.data_start_index);
 	printf("data_blk_count=%hu\n", sb.data_block_amount);
-	
+
 	// count free entries in FAT (value == 0)
 	int free_fat = 0;
 	for (int i = 0; i < sb.data_block_amount; i++) {
-		if (fat[i] == 0) //if entry is empty
+		if (fat[i] == 0) {//if entry is empty
+//		    printf("---%d is free----\n",i);
 			free_fat++;
+		}
 	}
 	printf("fat_free_ratio=%d/%hu\n", free_fat, sb.data_block_amount);
 

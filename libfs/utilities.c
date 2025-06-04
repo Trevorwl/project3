@@ -95,6 +95,8 @@ int create_disk(size_t data_blocks,char* filename){
         memset(utilities_buffer,0,bounce_buffer_size);
     }
 
+    memset(utilities_buffer,0,bounce_buffer_size);
+
     struct metadata* metadata=(struct metadata*)utilities_buffer;
 
     char* diskFormat="ECS150FS";

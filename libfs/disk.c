@@ -5,6 +5,7 @@
 #include <sys/types.h>
 #include <unistd.h>
 #include <string.h>
+#include <assert.h>
 
 #include "disk.h"
 #include "fs.h"
@@ -158,7 +159,7 @@ bool add_file_to_disk(struct fdNode* fd){
         return false;
     }
 
-    fd->first_data_block = available_block;
+    fd->first_data_block = (uint16_t)available_block;
 
     clear_block(fd->first_data_block);
 
@@ -178,9 +179,16 @@ bool add_file_to_disk(struct fdNode* fd){
 
     root_directory[fd->dir_entry_index].data_index= (uint16_t)available_block;
 
-    set_fat_entry(dirEntry->index, FAT_EOC);
+    set_fat_entry(available_block, FAT_EOC);
 
-    fat[dirEntry->index]=FAT_EOC;
+    fat[available_block]=FAT_EOC;
+
+//    if(available_block==23){
+//        printf("dirEntry->index: %d, fat[dirEntry->index]= %d, fat[23]=%d\n",
+//                dirEntry->index, fat[dirEntry->index], fat[23]);
+//    }
+
+//    assert(fat[dirEntry->index]==get_fat_entry(dirEntry->index));///////////////
 
     return true;
 }
@@ -199,6 +207,8 @@ int erase_file(size_t data_block_start){
         set_fat_entry(data_block,0);
 
         fat[data_block]=0;
+
+//        assert(fat[data_block]==get_fat_entry(data_block));///////////////
 
         if(next_block!=FAT_EOC){
 
@@ -325,9 +335,13 @@ size_t allocate_more_blocks(struct fdNode* fd, size_t needed_blocks){
 
         fat[end_block] = (uint16_t)available_block;
 
+//        assert(fat[end_block]==get_fat_entry(end_block));/////////////
+
         set_fat_entry(available_block, FAT_EOC);
 
         fat[available_block]=FAT_EOC;
+
+//        assert(fat[available_block]==get_fat_entry(available_block));///////////////
 
         end_block = available_block;
    }
