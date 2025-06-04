@@ -143,9 +143,10 @@ int fs_mount(const char *diskname)
 int fs_umount(void)
 {
 	// check if there's any mounted fs
-	if (!disk_mounted) {
-		return -1;
-	}
+    // close disk file
+    if (block_disk_close() == -1) {
+        return -1;
+    }
 
 	if(fd_table->fdsOccupied > 0){
 	    return -1;
@@ -165,10 +166,6 @@ int fs_umount(void)
     root_directory_index=0;
     disk_mounted = false; // reset mount flag
 
-	// close disk file
-	if (block_disk_close() < 0) {
-		return -1;
-	}
 	return 0;
 }
 
@@ -181,11 +178,11 @@ int fs_info(void)
 	}
 	/* Print format based on provided fs_ref.x ref program */
 	printf("FS Info:\n");
-	printf("total_blk_count=%d\n", sb.total_blocks);
-	printf("fat_blk_count=%d\n", sb.fat_block_count);
-	printf("rdir_blk=%d\n", sb.root_directory_index);
-	printf("data_blk=%d\n", sb.data_start_index);
-	printf("data_blk_count=%d\n", sb.data_block_amount);
+	printf("total_blk_count=%hu\n", sb.total_blocks);
+	printf("fat_blk_count=%hhu\n", sb.fat_block_count);
+	printf("rdir_blk=%hu\n", sb.root_directory_index);
+	printf("data_blk=%hu\n", sb.data_start_index);
+	printf("data_blk_count=%hu\n", sb.data_block_amount);
 	
 	// count free entries in FAT (value == 0)
 	int free_fat = 0;
@@ -193,7 +190,7 @@ int fs_info(void)
 		if (fat[i] == 0) //if entry is empty
 			free_fat++;
 	}
-	printf("fat_free_ratio=%d/%d\n", free_fat, sb.data_block_amount);
+	printf("fat_free_ratio=%d/%hu\n", free_fat, sb.data_block_amount);
 
 	// count free entries in root directory
 	int free_root_dir = 0;
@@ -306,7 +303,7 @@ int fs_ls(void)
     // go through all root dir entries
     for (int i = 0; i < fs_file_max_count; i++) {
         if (root_directory[i].file_name[0] != '\0') {
-            printf("file: %s, size: %d, data_blk: %d\n",
+            printf("file: %s, size: %u, data_blk: %hu\n",
                    root_directory[i].file_name,
                    root_directory[i].file_size,
                    root_directory[i].data_index);
