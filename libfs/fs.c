@@ -33,6 +33,10 @@ bool isValidMetadata();
 // opens virtual disk, reads superblock, verifies 
 int fs_mount(const char *diskname)
 {
+    if(disk_mounted){
+        return -1;
+    }
+
 	//check file descriptor was stored successfully
 	if(block_disk_open(diskname) < 0) { 
 		return -1; 
@@ -146,15 +150,19 @@ int fs_mount(const char *diskname)
 // unmount current mounted fs and close virtual disk
 int fs_umount(void)
 {
+    if(!disk_mounted){
+        return -1;
+    }
+
+    if(fd_table->fdsOccupied > 0){
+        return -1;
+    }
+
 	// check if there's any mounted fs
     // close disk file
     if (block_disk_close() == -1) {
         return -1;
     }
-
-	if(fd_table->fdsOccupied > 0){
-	    return -1;
-	}
 
 	// free FAT's memory & pointer
 	free(fat); 
