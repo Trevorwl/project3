@@ -6,7 +6,7 @@
 #include <string.h>
 
 struct fdTable* init_fd_table() {
-    struct fdTable* table = calloc(1,sizeof(struct fdTable));
+    struct fdTable* table = (struct fdTable*)calloc(1,sizeof(struct fdTable));
 
     if (!table) return NULL;
 

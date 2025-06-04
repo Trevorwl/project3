@@ -10,6 +10,8 @@
 #include "disk.h"
 #include "fs.h"
 
+#include "utilities.h"
+
 uint16_t FAT_EOC = 0xFFFF;
 
 uint8_t* bounce_buffer = NULL;
@@ -183,13 +185,6 @@ bool add_file_to_disk(struct fdNode* fd){
 
     fat[available_block]=FAT_EOC;
 
-//    if(available_block==23){
-//        printf("dirEntry->index: %d, fat[dirEntry->index]= %d, fat[23]=%d\n",
-//                dirEntry->index, fat[dirEntry->index], fat[23]);
-//    }
-
-//    assert(fat[dirEntry->index]==get_fat_entry(dirEntry->index));///////////////
-
     return true;
 }
 
@@ -207,8 +202,6 @@ int erase_file(size_t data_block_start){
         set_fat_entry(data_block,0);
 
         fat[data_block]=0;
-
-//        assert(fat[data_block]==get_fat_entry(data_block));///////////////
 
         if(next_block!=FAT_EOC){
 
@@ -287,13 +280,13 @@ bool first_block_available(size_t* block_index_holder){
         uint16_t* fat_entry=(uint16_t*)disk_buffer;
 
         for(int entry = 0; entry < FAT_ENTRIES; entry++){
+
             size_t data_block_index = (fat_block_index - (size_t)FAT_BLOCK_START_INDEX)
                                     * (size_t)FAT_ENTRIES + (size_t)entry;
 
             if(data_block_index == data_blocks){
                 return false;
             }
-
 
             if(*fat_entry==0){
 
@@ -335,13 +328,9 @@ size_t allocate_more_blocks(struct fdNode* fd, size_t needed_blocks){
 
         fat[end_block] = (uint16_t)available_block;
 
-//        assert(fat[end_block]==get_fat_entry(end_block));/////////////
-
         set_fat_entry(available_block, FAT_EOC);
 
         fat[available_block]=FAT_EOC;
-
-//        assert(fat[available_block]==get_fat_entry(available_block));///////////////
 
         end_block = available_block;
    }

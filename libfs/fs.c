@@ -38,12 +38,14 @@ int fs_mount(const char *diskname)
 		return -1; 
 	}
 
-	uint8_t block[BLOCK_SIZE]; // buffer to hold superblock content
+	uint8_t* block = (uint8_t*)calloc(1, BLOCK_SIZE * sizeof(uint8_t)); // buffer to hold superblock content
 
-	memset(block,0,BLOCK_SIZE);
+	if(block == NULL){
+	    return -1;
+	}
 
 	// verify block reads 4096 bytes 
-	if (block_read(0, block) < 0) {
+	if (block_read(SUPERBLOCK_INDEX, block) < 0) {
 		block_disk_close();
 		return -1;
 	}
@@ -71,7 +73,7 @@ int fs_mount(const char *diskname)
     }
 
 	//load the file allocation table from disk
-	fat = calloc(1, sb.fat_block_count * BLOCK_SIZE);
+	fat = (uint16_t*)calloc(1, sb.fat_block_count * BLOCK_SIZE);
 
 	//verify mem allocation succeeded
 	if (!fat) {
@@ -86,11 +88,11 @@ int fs_mount(const char *diskname)
 	}
 
 	// copy each FAT block into fat pointer
-	for (uint8_t i = 0; i < sb.fat_block_count; i++) {
+	for (size_t i = 0; i < sb.fat_block_count; i++) {
 	    memset(block,0,BLOCK_SIZE);
 		
 		// verify read succeeded
-		if (block_read(i + 1, block) < 0) {
+		if (block_read(FAT_BLOCK_START_INDEX + i, block) < 0) {
 		    block_disk_close();
 
 		    memset(&sb, 0, sizeof(struct superblock));
@@ -136,6 +138,8 @@ int fs_mount(const char *diskname)
 
     disk_mounted = true; //supBlock fs was successfully mounted on disk
 
+    free(block);
+
 	return 0;
 }
 
@@ -177,17 +181,6 @@ int fs_info(void)
 		return -1;
 	}
 
-
-//    hex_dump(fat,BLOCK_SIZE);
-//    printf("\n-------------------------\n");
-//
-//    init_bounce_buffer();
-//    clear_bounce_buffer();
-//    block_read(FAT_BLOCK_START_INDEX,bounce_buffer);
-//    hex_dump(bounce_buffer,BLOCK_SIZE);
-//    clear_bounce_buffer();
-//    printf("\n-------------------------\n");
-
 	/* Print format based on provided fs_ref.x ref program */
 	printf("FS Info:\n");
 	printf("total_blk_count=%hu\n", sb.total_blocks);
@@ -200,7 +193,6 @@ int fs_info(void)
 	int free_fat = 0;
 	for (int i = 0; i < sb.data_block_amount; i++) {
 		if (fat[i] == 0) {//if entry is empty
-//		    printf("---%d is free----\n",i);
 			free_fat++;
 		}
 	}
@@ -209,8 +201,9 @@ int fs_info(void)
 	// count free entries in root directory
 	int free_root_dir = 0;
 	for (int i = 0; i < fs_file_max_count; i++) {
-		if (root_directory[i].file_name[0] == '\0') // if entry is being unused
+		if (root_directory[i].file_name[0] == '\0'){ // if entry is being unused
 			free_root_dir++;
+		}
 	}
 	printf("rdir_free_ratio=%d/%d\n", free_root_dir, fs_file_max_count);
 
@@ -292,8 +285,10 @@ int fs_delete(const char *filename)
         return -1;
     }
     
-    erase_file(root_directory[file_index].data_index);
+    if(root_directory[file_index].data_index!=FAT_EOC){
 
+        erase_file(root_directory[file_index].data_index);
+    }
 
     // clear root dir entry
     memset(&root_directory[file_index], 0, sizeof(struct fs_directory_entry));
@@ -365,7 +360,7 @@ int fs_open(const char *filename)
     }
 
     // allocate and fill fdNodes
-    struct fdNode *new_fd = calloc(1,sizeof(struct fdNode));
+    struct fdNode *new_fd = (struct fdNode*)calloc(1,sizeof(struct fdNode));
     if (!new_fd) {
         return -1;
     }

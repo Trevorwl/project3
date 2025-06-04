@@ -52,6 +52,15 @@ int main(int argc,char** argv){
         free(buf);
     }
 
+    if(fs_umount()==-1){
+        printf("unmount error\n");
+        unlink("fa_test1.fs");
+        return EXIT_FAILURE;
+    }
+
+    fs_mount("fa_test1.fs");
+
+
     for(size_t file=0; file < DELETED_FILES;file++){
 
         memset(name, 0, 32 * sizeof(char));
