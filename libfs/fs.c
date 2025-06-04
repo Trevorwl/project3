@@ -317,6 +317,8 @@ int fs_ls(void)
         return -1;
     }
 
+    printf("FS Ls:\n");
+
     // go through all root dir entries
     for (int i = 0; i < fs_file_max_count; i++) {
         if (root_directory[i].file_name[0] != '\0') {
