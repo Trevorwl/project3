@@ -52,7 +52,7 @@ int fs_mount(const char *diskname)
 
     memcpy(&sb, supBlock, sizeof(struct superblock));
 
-	if(isValidMetadata()==false){
+	if(isValidMetadata() == false){
 	    block_disk_close();
 	    memset(&sb, 0, sizeof(struct superblock));
 
@@ -107,6 +107,8 @@ int fs_mount(const char *diskname)
 		memset(block, 0, BLOCK_SIZE);
 	}
 
+	memset(block, 0, BLOCK_SIZE);
+
 	// read root directory into memory
 	if (block_read(sb.root_directory_index, block) < 0) {
 
@@ -143,6 +145,10 @@ int fs_umount(void)
 	// check if there's any mounted fs
 	if (!disk_mounted) {
 		return -1;
+	}
+
+	if(fd_table->fdsOccupied > 0){
+	    return -1;
 	}
 
 	// free FAT's memory & pointer

@@ -7,11 +7,15 @@
 
 struct fdTable* init_fd_table() {
     struct fdTable* table = calloc(1,sizeof(struct fdTable));
+
     if (!table) return NULL;
+
     table->fdsOccupied = 0;
+
     for (int i = 0; i < FS_OPEN_MAX_COUNT; i++) {
         table->fdTable[i] = NULL;
     }
+
     return table;
 }
 
