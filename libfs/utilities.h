@@ -18,5 +18,7 @@ int load_external_file(char* filename);
 
 char* file_as_string(char* filename);
 
+size_t free_files();
+
 
 #endif

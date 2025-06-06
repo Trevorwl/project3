@@ -148,6 +148,34 @@ void print_allocated_blocks(struct fdNode* fd){
     printf("\ntotal blocks: %zu\n",total_blocks);
 }
 
+size_t free_files(){
+    if(disk_mounted==false){
+        return 0;
+    }
+
+    if(utilities_buffer==NULL){
+        utilities_buffer = (uint8_t*)calloc(1, bounce_buffer_size);
+    } else {
+        memset(utilities_buffer,0,bounce_buffer_size);
+    }
+
+    size_t files_free=0;
+
+    block_read(root_directory_index,utilities_buffer);
+
+    struct DirEntry* dirEntry=(struct DirEntry*)utilities_buffer;
+
+    for(size_t entry=0;entry<FS_FILE_MAX_COUNT;entry++){
+        if(*(dirEntry->filename)=='\0'){
+            files_free++;
+        }
+
+        dirEntry++;
+    }
+
+    return files_free;
+}
+
 size_t free_blocks(){
     if(disk_mounted==false){
         return 0;
